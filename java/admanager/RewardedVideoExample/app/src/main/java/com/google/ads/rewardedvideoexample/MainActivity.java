@@ -7,16 +7,15 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
-import com.google.android.gms.ads.MobileAds;
+import androidx.annotation.NonNull;
 import com.google.android.gms.ads.doubleclick.PublisherAdRequest;
-import com.google.android.gms.ads.reward.RewardItem;
-import com.google.android.gms.ads.reward.RewardedVideoAd;
-import com.google.android.gms.ads.reward.RewardedVideoAdListener;
+import com.google.android.gms.ads.rewarded.RewardItem;
+import com.google.android.gms.ads.rewarded.RewardedAd;
+import com.google.android.gms.ads.rewarded.RewardedAdCallback;
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
 
-/**
- * Main Activity. Inflates main activity xml and implements RewardedVideoAdListener.
- */
-public class MainActivity extends Activity implements RewardedVideoAdListener {
+/** Main Activity. Inflates main activity xml. */
+public class MainActivity extends Activity {
     private static final String AD_UNIT_ID = "/6499/example/rewarded-video";
     private static final long COUNTER_TIME = 10;
     private static final int GAME_OVER_REWARD = 1;
@@ -26,22 +25,42 @@ public class MainActivity extends Activity implements RewardedVideoAdListener {
     private CountDownTimer countDownTimer;
     private boolean gameOver;
     private boolean gamePaused;
-    private RewardedVideoAd rewardedVideoAd;
+
+  private RewardedAd rewardedAd;
+  private RewardedAdLoadCallback adLoadCallback;
     private Button retryButton;
     private Button showVideoButton;
     private long timeRemaining;
+  boolean isLoading;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        rewardedVideoAd = MobileAds.getRewardedVideoAdInstance(this);
-        rewardedVideoAd.setRewardedVideoAdListener(this);
-        loadRewardedVideoAd();
+    rewardedAd = new RewardedAd(this, AD_UNIT_ID);
 
-        // Create the "retry" button, which tries to show an interstitial between game plays.
-        retryButton = findViewById(R.id.retry_button);
+    adLoadCallback =
+        new RewardedAdLoadCallback() {
+          @Override
+          public void onRewardedAdLoaded() {
+            // Ad successfully loaded.
+            MainActivity.this.isLoading = false;
+            Toast.makeText(MainActivity.this, "onRewardedAdLoaded", Toast.LENGTH_SHORT).show();
+          }
+
+          @Override
+          public void onRewardedAdFailedToLoad(int errorCode) {
+            // Ad failed to load.
+            Toast.makeText(MainActivity.this, "onRewardedAdFailedToLoad", Toast.LENGTH_SHORT)
+                .show();
+          }
+        };
+
+    loadRewardedAd();
+
+    // Create the "retry" button, which tries to show a rewarded ad between game plays.
+    retryButton = findViewById(R.id.retry_button);
         retryButton.setVisibility(View.INVISIBLE);
         retryButton.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -72,7 +91,6 @@ public class MainActivity extends Activity implements RewardedVideoAdListener {
     public void onPause() {
         super.onPause();
         pauseGame();
-        rewardedVideoAd.pause(this);
     }
 
     @Override
@@ -81,7 +99,6 @@ public class MainActivity extends Activity implements RewardedVideoAdListener {
         if (!gameOver && gamePaused) {
             resumeGame();
         }
-        rewardedVideoAd.resume(this);
     }
 
     private void pauseGame() {
@@ -94,9 +111,10 @@ public class MainActivity extends Activity implements RewardedVideoAdListener {
         gamePaused = false;
     }
 
-    private void loadRewardedVideoAd() {
-        if (!rewardedVideoAd.isLoaded()) {
-            rewardedVideoAd.loadAd(AD_UNIT_ID, new PublisherAdRequest.Builder().build());
+  private void loadRewardedAd() {
+    if (!rewardedAd.isLoaded()) {
+      isLoading = true;
+      rewardedAd.loadAd(new PublisherAdRequest.Builder().build(), adLoadCallback);
         }
     }
 
@@ -109,7 +127,9 @@ public class MainActivity extends Activity implements RewardedVideoAdListener {
         // Hide the retry button, load the ad, and start the timer.
         retryButton.setVisibility(View.INVISIBLE);
         showVideoButton.setVisibility(View.INVISIBLE);
-        loadRewardedVideoAd();
+    if (!rewardedAd.isLoaded() && !isLoading) {
+      loadRewardedAd();
+    }
         createTimer(COUNTER_TIME);
         gamePaused = false;
         gameOver = false;
@@ -122,77 +142,63 @@ public class MainActivity extends Activity implements RewardedVideoAdListener {
         if (countDownTimer != null) {
             countDownTimer.cancel();
         }
-        countDownTimer = new CountDownTimer(time * 1000, 50) {
-            @Override
-            public void onTick(long millisUnitFinished) {
-                timeRemaining = ((millisUnitFinished / 1000) + 1);
-                textView.setText("seconds remaining: " + timeRemaining);
-            }
+    countDownTimer =
+        new CountDownTimer(time * 1000, 50) {
+          @Override
+          public void onTick(long millisUnitFinished) {
+            timeRemaining = ((millisUnitFinished / 1000) + 1);
+            textView.setText("seconds remaining: " + timeRemaining);
+          }
 
-            @Override
-            public void onFinish() {
-                if (rewardedVideoAd.isLoaded()) {
-                    showVideoButton.setVisibility(View.VISIBLE);
-                }
-                textView.setText("You Lose!");
-                addCoins(GAME_OVER_REWARD);
-                retryButton.setVisibility(View.VISIBLE);
-                gameOver = true;
+          @Override
+          public void onFinish() {
+            if (rewardedAd.isLoaded()) {
+              showVideoButton.setVisibility(View.VISIBLE);
             }
+            textView.setText("You Lose!");
+            addCoins(GAME_OVER_REWARD);
+            retryButton.setVisibility(View.VISIBLE);
+            gameOver = true;
+          }
         };
         countDownTimer.start();
     }
 
     private void showRewardedVideo() {
         showVideoButton.setVisibility(View.INVISIBLE);
-        if (rewardedVideoAd.isLoaded()) {
-            rewardedVideoAd.show();
+    if (rewardedAd.isLoaded()) {
+      RewardedAdCallback adCallback =
+          new RewardedAdCallback() {
+            @Override
+            public void onRewardedAdOpened() {
+              // Ad opened.
+              Toast.makeText(MainActivity.this, "onRewardedAdOpened", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onRewardedAdClosed() {
+              // Ad closed.
+              Toast.makeText(MainActivity.this, "onRewardedAdClosed", Toast.LENGTH_SHORT).show();
+              // Preload the next rewarded ad.
+              MainActivity.this.loadRewardedAd();
+            }
+
+            @Override
+            public void onUserEarnedReward(@NonNull RewardItem rewardItem) {
+              // User earned reward.
+              Toast.makeText(MainActivity.this, "onUserEarnedReward", Toast.LENGTH_SHORT).show();
+              addCoins(rewardItem.getAmount());
+            }
+
+            @Override
+            public void onRewardedAdFailedToShow(int errorCode) {
+              // Ad failed to display
+              Toast.makeText(MainActivity.this, "onRewardedAdFailedToShow", Toast.LENGTH_SHORT)
+                  .show();
+            }
+          };
+      rewardedAd.show(this, adCallback);
         }
     }
 
-    @Override
-    public void onRewardedVideoAdLeftApplication() {
-        Toast.makeText(this, "onRewardedVideoAdLeftApplication", Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    public void onRewardedVideoAdClosed() {
-        Toast.makeText(this, "onRewardedVideoAdClosed", Toast.LENGTH_SHORT).show();
-        // Preload the next video ad.
-        loadRewardedVideoAd();
-    }
-
-    @Override
-    public void onRewardedVideoAdFailedToLoad(int errorCode) {
-        Toast.makeText(this, "onRewardedVideoAdFailedToLoad", Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    public void onRewardedVideoAdLoaded() {
-        Toast.makeText(this, "onRewardedVideoAdLoaded", Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    public void onRewardedVideoAdOpened() {
-        Toast.makeText(this, "onRewardedVideoAdOpened", Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    public void onRewarded(RewardItem reward) {
-        Toast.makeText(this,
-                String.format(" onRewarded! currency: %s amount: %d", reward.getType(),
-                        reward.getAmount()),
-                Toast.LENGTH_SHORT).show();
-        addCoins(reward.getAmount());
-    }
-
-    @Override
-    public void onRewardedVideoStarted() {
-        Toast.makeText(this, "onRewardedVideoStarted", Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    public void onRewardedVideoCompleted() {
-        Toast.makeText(this, "onRewardedVideoCompleted", Toast.LENGTH_SHORT).show();
-    }
 }
